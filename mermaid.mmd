@@ -1,87 +1,32 @@
+---
+config:
+  look: neo
+---
 flowchart LR
-    %% =====================
-    %% Scan Layer (Batch)
-    %% =====================
-    subgraph Scan Layer
-        ZMap["ZMap\nDescoberta de hosts\n(netblock fechado)"]
-        ZMapWrapper["Wrapper Rust\n• Executa netblock inteiro\n• Define batch_id\n• Lock ASN/netblock\n• Kill-Switch\n• Publica somente ao final"]
-
-        Masscan["Masscan\nEnumeração de portas\n(batch fechado)"]
-        MasscanWrapper["Wrapper Rust\n• Consome batch completo\n• Lock por batch_id\n• Kill-Switch\n• Publica somente ao final"]
-
-        ZGrab2["ZGrab2\nFingerprint semântico\n(batch fechado)"]
-        ZGrab2Wrapper["Wrapper Rust\n• Consome batch completo\n• Lock por batch_id\n• Kill-Switch\n• Publica somente ao final"]
-    end
-
-    %% =====================
-    %% Kafka Layer (Batch-aware)
-    %% =====================
-    subgraph Kafka Layer
-        KafkaHosts[(Kafka: hosts.discovered\nkey=batch_id)]
-        KafkaEndpoints[(Kafka: endpoints.discovered\nkey=batch_id)]
-        KafkaServices[(Kafka: services.observed\nkey=batch_id)]
-        KafkaBatches[(Kafka: scan.batches\nbatch_started / batch_completed)]
-    end
-
-    %% =====================
-    %% Elastic Layer
-    %% =====================
-    subgraph Elastic Layer
-        ElasticHosts["Elastic\nhosts index\n(batch_id indexed)"]
-        ElasticEndpoints["Elastic\nendpoints index\n(batch_id indexed)"]
-        ElasticServices["Elastic\nservices index\n(batch_id indexed)"]
-    end
-
-    %% =====================
-    %% Orchestration / State
-    %% =====================
-    subgraph Orchestration
-        n8n["n8n\nBatch Orchestrator\n(Decision Point)"]
-        State["Redis / KV\n• batch state\n• ASN lock\n• netblock cooldown\n• global kill-switch"]
-    end
-
-    %% =====================
-    %% Batch Execution Flow
-    %% =====================
+ subgraph Scan_Layer["Scan_Layer"]
+        ZMapWrapper["Wrapper → Kafka"]
+        ZMap["Descoberta de hosts"]
+        MasscanWrapper["Wrapper → Kafka"]
+        Masscan["Enum portas"]
+        BGrabWrapper["Wrapper → Kafka"]
+        BGrab["Fingerprint"]
+  end
+ subgraph Kafka_Layer["Kafka_Layer"]
+        KafkaHosts[("Kafka: hosts.discovered")]
+        KafkaEndpoints[("Kafka: endpoints.discovered")]
+        KafkaServices[("Kafka: services.observed")]
+  end
+ subgraph Elastic_Layer["Elastic_Layer"]
+        ElasticHosts["Elastic\nhosts index"]
+        ElasticEndpoints["Elastic\nendpoints index"]
+        ElasticServices["Elastic\nservices index"]
+  end
     ZMap --> ZMapWrapper
-    ZMapWrapper -->|batch fechado| KafkaHosts
-    ZMapWrapper --> KafkaBatches
-
-    KafkaHosts -->|batch completo| MasscanWrapper
     Masscan --> MasscanWrapper
-    MasscanWrapper -->|batch fechado| KafkaEndpoints
-    MasscanWrapper --> KafkaBatches
-
-    KafkaEndpoints -->|batch completo| ZGrab2Wrapper
-    ZGrab2 --> ZGrab2Wrapper
-    ZGrab2Wrapper -->|batch fechado| KafkaServices
-    ZGrab2Wrapper --> KafkaBatches
-
-    %% =====================
-    %% Observação / Persistência
-    %% =====================
-    KafkaHosts --> ElasticHosts
-    KafkaEndpoints --> ElasticEndpoints
+    BGrab --> BGrabWrapper
+    ZMapWrapper --> KafkaHosts
+    KafkaHosts --> MasscanWrapper & ElasticHosts
+    MasscanWrapper --> KafkaEndpoints
+    KafkaEndpoints --> BGrabWrapper & ElasticEndpoints
+    BGrabWrapper --> KafkaServices
     KafkaServices --> ElasticServices
-
-    KafkaBatches --> n8n
-    KafkaHosts --> n8n
-    KafkaEndpoints --> n8n
-    KafkaServices --> n8n
-
-    %% =====================
-    %% Controle e Feedback
-    %% =====================
-    n8n -->|define próximos netblocks| ZMapWrapper
-    n8n -->|prioriza batch| State
-    n8n -->|bloqueia / adia| State
-
-    State --> ZMapWrapper
-    State --> MasscanWrapper
-    State --> ZGrab2Wrapper
-
-    %% =====================
-    %% Semântica visual
-    %% =====================
-    classDef pause fill:#f9f,stroke:#333;
-    class ZMapWrapper,MasscanWrapper,ZGrab2Wrapper pause
