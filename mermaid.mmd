@@ -17,18 +17,18 @@ config:
     tertiaryColor: '#FFF9D6'
 ---
 flowchart LR
- subgraph Fingerprint_Pipeline["Stage 3 — Service Discovery"]
-    direction TB
-        Fingerprint["Fingerprint"]
-        Negotiate["Negotiate CLI"]
-  end
 
- subgraph Scan_Layer["Scan_Layer"]
+ subgraph Discovery_Apps["Discovery Applications"]
     direction TB
-        MasscanHosts["Hosts Discovery"]
-        MasscanPorts["Ports Discovery"]
-        Fingerprint_Pipeline
-  end
+        HostsApp["hosts-discovery app"]
+        PortsApp["ports-discovery app"]
+ end
+
+ subgraph Fingerprint_Apps["Service Identification Applications"]
+    direction TB
+        FingerprintApp["fingerprint app"]
+        NegotiateApp["negotiate app"]
+ end
 
  subgraph Kafka_Layer["Kafka"]
     direction TB
@@ -36,47 +36,48 @@ flowchart LR
         KafkaEndpoints[("endpoints.discovered")]
         KafkaFingerprint[("fingerprint.detected")]
         KafkaServices[("services.observed")]
-  end
+ end
 
- subgraph Consumer_Layer["Service Observer App"]
+ subgraph Observer_App["Service Observer App"]
     direction TB
         ServicesConsumer["Kafka Consumer\n(services.observed)"]
-  end
+ end
 
  subgraph Elastic_Layer["Elastic"]
     direction TB
         ElasticServices["services index"]
-  end
+ end
 
-    MasscanHosts --> KafkaHosts
-    KafkaHosts --> MasscanPorts
-    MasscanPorts --> KafkaEndpoints
-    KafkaEndpoints --> Fingerprint
-    Fingerprint --> KafkaFingerprint
-    KafkaFingerprint --> Negotiate
-    Negotiate --> KafkaServices
+    HostsApp --> KafkaHosts
+    KafkaHosts --> PortsApp
+    PortsApp --> KafkaEndpoints
+    KafkaEndpoints --> FingerprintApp
+    FingerprintApp --> KafkaFingerprint
+    KafkaFingerprint --> NegotiateApp
+    NegotiateApp --> KafkaServices
 
     KafkaServices --> ServicesConsumer
     ServicesConsumer --> ElasticServices
 
-     Fingerprint:::stage
-     Negotiate:::stage
-     MasscanHosts:::node
-     MasscanPorts:::node
-     KafkaHosts:::bus
-     KafkaEndpoints:::bus
-     KafkaFingerprint:::bus
-     KafkaServices:::bus
-     ServicesConsumer:::stage
-     ElasticServices:::store
+    HostsApp:::stage
+    PortsApp:::stage
+    FingerprintApp:::stage
+    NegotiateApp:::stage
+    ServicesConsumer:::stage
 
-    classDef node fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
+    KafkaHosts:::bus
+    KafkaEndpoints:::bus
+    KafkaFingerprint:::bus
+    KafkaServices:::bus
+
+    ElasticServices:::store
+
     classDef stage fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
     classDef bus fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
     classDef store fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
 
-    style Fingerprint_Pipeline fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.1px,rx:3,ry:3
-    style Scan_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    style Discovery_Apps fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    style Fingerprint_Apps fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Kafka_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
-    style Consumer_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    style Observer_App fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Elastic_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
