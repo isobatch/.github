@@ -1,73 +1,82 @@
-%%{init:{
-  "theme":"base",
-  "flowchart":{
-    "curve":"basis",
-    "padding":12,
-    "nodeSpacing":26,
-    "rankSpacing":24
-  },
-  "themeVariables":{
-    "fontFamily":"Inter, Segoe UI, Arial",
-    "fontSize":"12.5px",
-    "lineColor":"#111827",
-    "primaryColor":"#EEF2F7",
-    "primaryTextColor":"#0f172a",
-    "primaryBorderColor":"#64748b",
-    "secondaryColor":"#FFF9D6",
-    "tertiaryColor":"#FFF9D6"
-  }
-}}%%
-
+---
+config:
+  theme: base
+  flowchart:
+    curve: basis
+    padding: 12
+    nodeSpacing: 26
+    rankSpacing: 24
+  themeVariables:
+    fontFamily: Inter, Segoe UI, Arial
+    fontSize: 12.5px
+    lineColor: '#111827'
+    primaryColor: '#EEF2F7'
+    primaryTextColor: '#0f172a'
+    primaryBorderColor: '#64748b'
+    secondaryColor: '#FFF9D6'
+    tertiaryColor: '#FFF9D6'
+---
 flowchart LR
-
-classDef node fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
-classDef stage fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
-classDef bus fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
-classDef store fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
-
-linkStyle default stroke:#111827,stroke-width:1.1px
-
-subgraph Scan_Layer["Scan_Layer"]
-direction TB
-
-  ZMap["Hosts Discovery"]:::node
-  Masscan["Ports Discovery"]:::node
-
-  subgraph Fingerprint_Pipeline["Stage 3 — Service Discovery"]
-  direction TB
-    Detect["Detect"]:::stage
-    Negotiate["Negotiate"]:::stage
-    Fingerprint["Fingerprint"]:::stage
-    Normalize["Normalize"]:::stage
+ subgraph Fingerprint_Pipeline["Stage 3 — Service Discovery"]
+    direction TB
+        Fingerprint["Fingerprint"]
+        Negotiate["Negotiate CLI"]
   end
-end
 
-subgraph Kafka_Layer["Kafka"]
-direction TB
-  KafkaHosts[("hosts.discovered")]:::bus
-  KafkaEndpoints[("endpoints.discovered")]:::bus
-  KafkaServices[("services.observed")]:::bus
-end
+ subgraph Scan_Layer["Scan_Layer"]
+    direction TB
+        MasscanHosts["Hosts Discovery"]
+        MasscanPorts["Ports Discovery"]
+        Fingerprint_Pipeline
+  end
 
-subgraph Elastic_Layer["Elastic"]
-direction TB
-  ElasticHosts["hosts"]:::store
-  ElasticEndpoints["endpoints"]:::store
-  ElasticServices["services"]:::store
-end
+ subgraph Kafka_Layer["Kafka"]
+    direction TB
+        KafkaHosts[("hosts.discovered")]
+        KafkaEndpoints[("endpoints.discovered")]
+        KafkaFingerprint[("fingerprint.detected")]
+        KafkaServices[("services.observed")]
+  end
 
-ZMap --> KafkaHosts
-KafkaHosts --> ElasticHosts
-KafkaHosts --> Masscan
+ subgraph Consumer_Layer["Service Observer App"]
+    direction TB
+        ServicesConsumer["Kafka Consumer\n(services.observed)"]
+  end
 
-Masscan --> KafkaEndpoints
-KafkaEndpoints --> ElasticEndpoints
-KafkaEndpoints --> Detect
+ subgraph Elastic_Layer["Elastic"]
+    direction TB
+        ElasticServices["services index"]
+  end
 
-Detect --> Negotiate --> Fingerprint --> Normalize --> KafkaServices
-KafkaServices --> ElasticServices
+    MasscanHosts --> KafkaHosts
+    KafkaHosts --> MasscanPorts
+    MasscanPorts --> KafkaEndpoints
+    KafkaEndpoints --> Fingerprint
+    Fingerprint --> KafkaFingerprint
+    KafkaFingerprint --> Negotiate
+    Negotiate --> KafkaServices
 
-style Scan_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
-style Fingerprint_Pipeline fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.1px,rx:3,ry:3
-style Kafka_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
-style Elastic_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    KafkaServices --> ServicesConsumer
+    ServicesConsumer --> ElasticServices
+
+     Fingerprint:::stage
+     Negotiate:::stage
+     MasscanHosts:::node
+     MasscanPorts:::node
+     KafkaHosts:::bus
+     KafkaEndpoints:::bus
+     KafkaFingerprint:::bus
+     KafkaServices:::bus
+     ServicesConsumer:::stage
+     ElasticServices:::store
+
+    classDef node fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
+    classDef stage fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
+    classDef bus fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
+    classDef store fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
+
+    style Fingerprint_Pipeline fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.1px,rx:3,ry:3
+    style Scan_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    style Kafka_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    style Consumer_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    style Elastic_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
