@@ -1,213 +1,120 @@
-# Internet Scan Orchestrator (Batch-Oriented)
+Pipeline distribuído para descoberta de hosts, identificação de serviços e observação estruturada, orientado a eventos e baseado em Kafka como log central imutável.
 
-Este projeto implementa uma arquitetura determinística e auditável para varredura de larga escala da Internet, baseada em **execução por batches (netblocks fechados)**, com separação explícita entre **execução**, **coordenação**, **estado** e **observação**.
-
-Não é um pipeline de streaming contínuo.  
-É um **sistema de orquestração de scans**, alinhado ao comportamento real de ferramentas como **ZMap**, **Masscan** e **ZGrab2**.
+O sistema é composto por **aplicações Rust independentes**, desacopladas por tópicos Kafka, permitindo escala seletiva, replay completo e substituição isolada de estágios.
 
 ---
 
-## Objetivo
+## Visão Geral da Arquitetura
 
-Executar varreduras de Internet de forma:
+O pipeline é **estritamente unidirecional**. Cada aplicação executa uma única responsabilidade, publica eventos e não mantém estado interno persistente.
 
-- controlada
-- reproduzível
-- semanticamente consistente
-- resistente a loops implícitos e estados intermediários
+Fluxo lógico: hosts → endpoints → fingerprint → services → elastic
 
-Cada execução é tratada como uma **unidade discreta de trabalho (batch)**, tipicamente um **netblock**.
 
----
-
-## Princípios de Design
-
-- **Batch-first**: nada flui parcialmente.
-- **Kafka como barreira**, não como cérebro.
-- **Estado externo mínimo**, volátil e explícito.
-- **Decisão separada de execução**.
-- **Observabilidade sem acoplamento**.
-
----
-
-## Conceito Central: Batch
-
-Um **batch** representa um netblock completamente processado.
-
-Todo evento no sistema carrega obrigatoriamente:
-- `batch_id`
-- `netblock`
-- `asn`
-
-Nenhum scanner publica dados intermediários.  
-Um batch só existe quando **termina**.
+Kafka atua como **barreira arquitetural**, não como fila.
 
 ---
 
 ## Componentes
 
-### Scan Layer
+### Discovery Applications
 
-Ferramentas reais de scanning, encapsuladas por wrappers em Rust.
+#### `hosts-discovery`
+- Responsável por descoberta de hosts (ex: masscan).
+- Publica eventos em `hosts.discovered`.
 
-#### ZMap Wrapper
-- Recebe um netblock.
-- Executa o scan completo.
-- Define `batch_id`.
-- Aplica:
-  - kill-switch
-  - lock por ASN/netblock
-  - cooldown
-- Publica **somente ao final** em `hosts.discovered`.
-
-#### Masscan Wrapper
-- Consome batches completos de hosts.
-- Enumera portas.
-- Respeita locks e estado.
-- Publica **somente ao final** em `endpoints.discovered`.
-
-#### ZGrab2 Wrapper
-- Consome batches completos de endpoints.
-- Executa fingerprint semântico.
-- Publica **somente ao final** em `services.observed`.
-
-Wrappers **não decidem prioridade**, apenas obedecem.
+#### `ports-discovery`
+- Consome `hosts.discovered`.
+- Descobre portas e protocolos expostos.
+- Publica eventos em `endpoints.discovered`.
 
 ---
 
-### Kafka Layer
+### Service Identification Applications
 
-Kafka é usado como **mecanismo de desacoplamento e sincronização**, não como sistema de decisão.
+#### `fingerprint`
+- Consome `endpoints.discovered`.
+- Executa probes e fingerprinting de protocolos.
+- Publica eventos em `fingerprint.detected`.
 
-#### Tópicos principais
-- `hosts.discovered`
-- `endpoints.discovered`
-- `services.observed`
-
-Todos:
-- chaveados por `batch_id`
-- retenção curta
-- sem compactação
-
-#### Tópico de controle
-- `scan.batches`
-  - `batch_started`
-  - `batch_completed`
-
-Kafka garante:
-- isolamento entre batches
-- replay controlado
-- ordem por entidade
+#### `negotiate`
+- Consome `fingerprint.detected`.
+- Realiza negociação ativa (handshakes, banners, variações de protocolo).
+- Publica eventos finais em `services.observed`.
 
 ---
 
-### Orchestration Layer
+### Observer Application
 
-#### n8n (Decision Point)
-
-n8n atua exclusivamente como **orquestrador de batches**.
-
-Funções:
-- observar eventos de batch
-- decidir próximos netblocks
-- priorizar ou bloquear execuções
-- solicitar rescan seletivo
-
-n8n **não executa scans** e **não participa de loops de alta frequência**.
+#### `service-observer`
+- Consome `services.observed`.
+- Responsável por:
+  - normalização
+  - enrichment
+  - deduplicação
+  - transformação em documento
+- Indexa dados no Elastic/OpenSearch.
+- Pode ser desligado, reprocessado ou substituído sem impacto no scan.
 
 ---
 
-### State Layer
+## Kafka Topics
 
-#### Redis / KV
+| Topic                  | Descrição                                | Key recomendada                |
+|------------------------|------------------------------------------|--------------------------------|
+| `hosts.discovered`     | Hosts identificados                      | `ip`                           |
+| `endpoints.discovered` | Endpoints (ip/porta/protocolo)           | `ip:port:proto`                |
+| `fingerprint.detected` | Serviço identificado                     | `ip:port:service`              |
+| `services.observed`    | Serviço observado e negociado            | `service_fingerprint_hash`     |
 
-Estado operacional volátil.
-
-Usado para:
-- lock por batch
-- lock por ASN
-- cooldown por netblock
-- kill-switch global
-- flags temporárias
-
-Redis **não é source of truth**.
-
----
-
-### Elastic Layer
-
-Elastic é o **repositório observacional**.
-
-- Indexação assíncrona via consumidores Kafka.
-- Índices separados:
-  - hosts
-  - endpoints
-  - services
-- Todos os documentos indexados com `batch_id`.
-
-Não existem estados intermediários no índice.
+Todos os eventos devem ser:
+- imutáveis
+- versionados por schema
+- idempotentes por key
 
 ---
 
-## Fluxo de Execução
+## Execução
 
-1. n8n seleciona um netblock.
-2. ZMap Wrapper executa o scan completo.
-3. Ao finalizar, publica o batch em `hosts.discovered`.
-4. Masscan Wrapper consome o batch inteiro.
-5. Enumera portas e publica em `endpoints.discovered`.
-6. ZGrab2 Wrapper consome o batch inteiro.
-7. Executa fingerprint e publica em `services.observed`.
-8. Elastic indexa os dados.
-9. n8n observa o batch completo e decide os próximos passos.
+Cada aplicação é executada de forma independente.
 
-Nenhum estágio inicia sem o batch anterior estar fechado.
+Exemplos:
 
----
+```bash
+KAFKA_BROKERS=190.102.43.107:9092 target/release/hosts-discovery 200.150.192.0/20
+KAFKA_BROKERS=190.102.43.107:9092 target/release/ports-discovery
+KAFKA_BROKERS=190.102.43.107:9092 target/release/fingerprint
+KAFKA_BROKERS=190.102.43.107:9092 target/release/negotiate
+KAFKA_BROKERS=190.102.43.107:9092 target/release/service-observer
+```
 
-## Propriedades do Sistema
+## Princípios Arquiteturais
 
-- Determinismo forte
-- Backpressure natural
-- Auditabilidade por batch
-- Reprocessamento simples
-- Falhas previsíveis
-- Sem loops implícitos
-
----
-
-## Trade-offs Assumidos
-
-- Maior latência por design
-- Menos paralelismo fino
-- Execução deliberadamente controlada
-
-Esses trade-offs são intencionais.
+- Nenhuma comunicação direta entre aplicações  
+- Nenhum estado compartilhado em memória  
+- Kafka é a única fonte de verdade  
+- Elastic não participa do pipeline de scan  
+- Todo estágio é escalável de forma independente  
+- Falha parcial não invalida o pipeline  
+- Replay completo é sempre possível  
 
 ---
 
-## O que o sistema não é
+## O que este projeto **não é**
 
-- Não é streaming reativo
-- Não é event-driven fino
-- Não é auto-adaptativo
-- Não é real-time
-
----
-
-## Quando usar
-
-- Scanning de larga escala
-- Pesquisa de superfície de ataque
-- Observação contínua da Internet
-- Ambientes onde controle > velocidade
+- Não é uma ferramenta monolítica de scan  
+- Não é um conjunto de microserviços HTTP  
+- Não depende de RPC, REST ou gRPC  
+- Não acopla lógica de negócio a storage  
 
 ---
 
-## Resumo
+## Objetivo
 
-Este projeto prioriza **clareza operacional** sobre reatividade.  
-Cada scan é uma decisão explícita, cada resultado é contextualizado, e cada efeito colateral é controlado.
+Construir um pipeline de observação distribuída, determinístico e reprocessável, capaz de operar em larga escala com isolamento funcional real.
 
-Não escala pela abstração.  
-Escala pela simplicidade correta.
+Este projeto prioriza:
+
+- Clareza arquitetural  
+- Previsibilidade operacional  
+- Controle total sobre fluxo, estado e evolução  
