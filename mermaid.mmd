@@ -18,6 +18,11 @@ config:
 ---
 flowchart LR
 
+ subgraph Bootstrap["Discovery Bootstrap"]
+    direction TB
+        Seeder["discovery-seed\n(static loader)"]
+ end
+
  subgraph Discovery_Apps["Discovery Applications"]
     direction TB
         HostsApp["hosts-discovery app"]
@@ -32,6 +37,7 @@ flowchart LR
 
  subgraph Kafka_Layer["Kafka"]
     direction TB
+        KafkaJobs[("discovery.jobs")]
         KafkaHosts[("hosts.discovered")]
         KafkaEndpoints[("endpoints.discovered")]
         KafkaFingerprint[("fingerprint.detected")]
@@ -48,6 +54,9 @@ flowchart LR
         ElasticServices["services index"]
  end
 
+    Seeder --> KafkaJobs
+
+    KafkaJobs --> HostsApp
     HostsApp --> KafkaHosts
     KafkaHosts --> PortsApp
     PortsApp --> KafkaEndpoints
@@ -59,12 +68,14 @@ flowchart LR
     KafkaServices --> ServicesConsumer
     ServicesConsumer --> ElasticServices
 
+    Seeder:::bootstrap
     HostsApp:::stage
     PortsApp:::stage
     FingerprintApp:::stage
     NegotiateApp:::stage
     ServicesConsumer:::stage
 
+    KafkaJobs:::bus
     KafkaHosts:::bus
     KafkaEndpoints:::bus
     KafkaFingerprint:::bus
@@ -72,10 +83,12 @@ flowchart LR
 
     ElasticServices:::store
 
+    classDef bootstrap fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.3px,color:#0f172a
     classDef stage fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
     classDef bus fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
     classDef store fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
 
+    style Bootstrap fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Discovery_Apps fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Fingerprint_Apps fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Kafka_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
