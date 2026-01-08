@@ -15,82 +15,97 @@ config:
     primaryBorderColor: '#64748b'
     secondaryColor: '#FFF9D6'
     tertiaryColor: '#FFF9D6'
+  layout: fixed
 ---
 flowchart LR
-
  subgraph Bootstrap["Discovery Bootstrap"]
     direction TB
         Seeder["discovery-seed\n(static loader)"]
- end
-
+  end
  subgraph Discovery_Apps["Discovery Applications"]
     direction TB
         HostsApp["hosts-discovery app"]
         PortsApp["ports-discovery app"]
- end
-
+  end
  subgraph Fingerprint_Apps["Service Identification Applications"]
     direction TB
         FingerprintApp["fingerprint app"]
         NegotiateApp["negotiate app"]
- end
-
+  end
  subgraph Kafka_Layer["Kafka"]
     direction TB
         KafkaJobs[("discovery.jobs")]
         KafkaHosts[("hosts.discovered")]
         KafkaEndpoints[("endpoints.discovered")]
         KafkaFingerprint[("fingerprint.detected")]
-        KafkaServices[("services.observed")]
- end
-
- subgraph Observer_App["Service Observer App"]
-    direction TB
-        ServicesConsumer["Kafka Consumer\n(services.observed)"]
- end
-
+  end
  subgraph Elastic_Layer["Elastic"]
     direction TB
         ElasticServices["services index"]
- end
-
+  end
+ subgraph s1["Elastic"]
+        n1["enumblocknet"]
+  end
+ subgraph s2["TCP Clients"]
+        n2["database-cli"]
+        n3["remote-cli"]
+  end
     Seeder --> KafkaJobs
-
     KafkaJobs --> HostsApp
-    HostsApp --> KafkaHosts
+    HostsApp -- batch --> KafkaHosts
     KafkaHosts --> PortsApp
-    PortsApp --> KafkaEndpoints
+    PortsApp -- edriven --> KafkaEndpoints
     KafkaEndpoints --> FingerprintApp
-    FingerprintApp --> KafkaFingerprint
+    FingerprintApp -- edriven --> KafkaFingerprint
     KafkaFingerprint --> NegotiateApp
-    NegotiateApp --> KafkaServices
+    NegotiateApp --> ElasticServices
+    Bootstrap L_Bootstrap_s1_0@--> s1
+    s2 --> NegotiateApp
+    n4["sharefile-cli"]
+    n5["transferfile-cli"]
+    n6["iot-cli"]
+    n7["email-cli"]
+    n8["web-cli"]
+    n9["queue-cli"]
 
-    KafkaServices --> ServicesConsumer
-    ServicesConsumer --> ElasticServices
-
-    Seeder:::bootstrap
-    HostsApp:::stage
-    PortsApp:::stage
-    FingerprintApp:::stage
-    NegotiateApp:::stage
-    ServicesConsumer:::stage
-
-    KafkaJobs:::bus
-    KafkaHosts:::bus
-    KafkaEndpoints:::bus
-    KafkaFingerprint:::bus
-    KafkaServices:::bus
-
-    ElasticServices:::store
-
+    n1@{ shape: rect}
+    n2@{ shape: rect}
+    n3@{ shape: rect}
+    n4@{ shape: rect}
+    n5@{ shape: rect}
+    n6@{ shape: rect}
+    n7@{ shape: rect}
+    n8@{ shape: rect}
+    n9@{ shape: rect}
+     Seeder:::bootstrap
+     HostsApp:::stage
+     PortsApp:::stage
+     FingerprintApp:::stage
+     NegotiateApp:::stage
+     KafkaJobs:::bus
+     KafkaHosts:::bus
+     KafkaEndpoints:::bus
+     KafkaFingerprint:::bus
+     ElasticServices:::store
+     n1:::store
+     n2:::stage
+     n3:::stage
+     n4:::stage
+     n5:::stage
+     n6:::stage
+     n7:::stage
+     n8:::stage
+     n9:::stage
     classDef bootstrap fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.3px,color:#0f172a
     classDef stage fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
     classDef bus fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
     classDef store fill:#EEF2F7,stroke:#64748b,stroke-width:1.3px,color:#0f172a
-
     style Bootstrap fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    style s1 fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+    style s2 fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Discovery_Apps fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Fingerprint_Apps fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Kafka_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
-    style Observer_App fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
     style Elastic_Layer fill:#FFF9D6,stroke:#8B8BFF,stroke-width:1.2px,rx:4,ry:4
+
+    L_Bootstrap_s1_0@{ curve: linear }
